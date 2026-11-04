@@ -1,0 +1,55 @@
+name: Publish NativeRestore v5
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-native-restore-v5.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: native-restore-v5-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download and verify the native-preserving candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          cd release
+          curl --fail --location --retry 3 --max-time 900 --output FreeFire_1.132.1_NativeRestore_v5_UNSIGNED.ipa https://litter.catbox.moe/99wa5s.ipa
+          curl --fail --location --retry 3 --max-time 120 --output NativeRestore_v5_Verification.zip https://litter.catbox.moe/2zv7t2.zip
+          cat > SHA256SUMS_NATIVE_V5.txt <<'CHECKSUMS'
+          7e53d31df9b839b15c9244b1eae0a1d6c443290d6b3995deace97d18b8ec83d8  FreeFire_1.132.1_NativeRestore_v5_UNSIGNED.ipa
+          0c269186bc24117564bae5d81252b0a7d3b6ae96c216d0a1dc912ca27322dbaa  NativeRestore_v5_Verification.zip
+          CHECKSUMS
+          sha256sum --check SHA256SUMS_NATIVE_V5.txt
+      - name: Upload and verify the prerelease assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload native-restore-v5 --repo "$GITHUB_REPOSITORY" release/FreeFire_1.132.1_NativeRestore_v5_UNSIGNED.ipa release/NativeRestore_v5_Verification.zip release/SHA256SUMS_NATIVE_V5.txt
+          gh api "repos/$GITHUB_REPOSITORY/releases/433980153/assets" > /tmp/native-v5-assets.json
+          python3 - <<'PY'
+          import json
+          assets = json.load(open('/tmp/native-v5-assets.json'))
+          expected = {
+            'FreeFire_1.132.1_NativeRestore_v5_UNSIGNED.ipa': (991743520, '7e53d31df9b839b15c9244b1eae0a1d6c443290d6b3995deace97d18b8ec83d8'),
+            'NativeRestore_v5_Verification.zip': (5336472, '0c269186bc24117564bae5d81252b0a7d3b6ae96c216d0a1dc912ca27322dbaa')
+          }
+          for name, (size, digest) in expected.items():
+            item = next(a for a in assets if a['name'] == name)
+            assert item['state'] == 'uploaded' and item['size'] == size
+            assert item['digest'] == 'sha256:' + digest
+          print('GitHub sizes and SHA-256 digests verified.')
+          PY
+          gh release edit native-restore-v5 --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
