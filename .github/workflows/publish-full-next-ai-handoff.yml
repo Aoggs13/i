@@ -1,0 +1,63 @@
+name: Publish full next-AI handoff
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-full-next-ai-handoff.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: next-ai-full-handoff-20261104
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Use the recorded Python version
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.14'
+      - name: Download the exact indexed portable work
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --max-time 180 --output portable-work.zip https://litter.catbox.moe/rp15i8.zip
+          echo '50663e390d583175301d747f517c7316091f0140bd5f83975c3d72a67ccf191f  portable-work.zip' | sha256sum --check -
+          python -m zipfile --extract portable-work.zip work
+      - name: Retrieve and verify the exact original IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          python work/freefire-review/deep/fetch_public_ipa.py 1Whh8fPFOqAAhEBmiIGSXGXin_WG4Fbq7 latest.ipa --expected-size 1040298999
+          echo 'c6cbb0b3758d142bcf2c38f88473d5b7297ff422965d61777a1ee78eece36fae  latest.ipa' | sha256sum --check -
+      - name: Reproduce and validate the single full ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          python work/build_full_handoff.py --work-dir work --ipa latest.ipa --index work/FILES_SHA256.json --output FREEFIRE_NEXT_AI_FULL_HANDOFF.zip
+          echo '1e49e225e1de723db84ca9c20d6436e10b21ef81dc757cd37bb326d40841aba8  FREEFIRE_NEXT_AI_FULL_HANDOFF.zip' | sha256sum --check -
+          python -m zipfile --test FREEFIRE_NEXT_AI_FULL_HANDOFF.zip
+      - name: Upload the one handoff asset and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload next-ai-full-handoff-20261104 --repo "$GITHUB_REPOSITORY" FREEFIRE_NEXT_AI_FULL_HANDOFF.zip
+          gh api "repos/$GITHUB_REPOSITORY/releases/433996040/assets" > /tmp/full-handoff-assets.json
+          python - <<'PY'
+          import json
+          assets = json.load(open('/tmp/full-handoff-assets.json'))
+          assert len(assets) == 1
+          a = assets[0]
+          assert a['name'] == 'FREEFIRE_NEXT_AI_FULL_HANDOFF.zip'
+          assert a['state'] == 'uploaded' and a['size'] == 1183491667
+          assert a['digest'] == 'sha256:1e49e225e1de723db84ca9c20d6436e10b21ef81dc757cd37bb326d40841aba8'
+          print('Single handoff asset size and SHA-256 verified on GitHub.')
+          PY
+          gh release edit next-ai-full-handoff-20261104 --repo "$GITHUB_REPOSITORY" --draft=false
