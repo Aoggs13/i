@@ -1,0 +1,55 @@
+name: Publish MenuFix v4 assets
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/publish-menufix-v4.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: menufix-v4-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Download and verify the existing v4 files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          cd release
+          curl --fail --location --retry 3 --max-time 900 --output FreeFire_1.132.1_MenuFix_v4_UNSIGNED.ipa https://litter.catbox.moe/hk4me9.ipa
+          curl --fail --location --retry 3 --max-time 120 --output MenuFix_v4_Verification.zip https://litter.catbox.moe/3p35zg.zip
+          cat > SHA256SUMS.txt <<'CHECKSUMS'
+          bd48ffc1b6a74856e1832f884b4b5678b6cf3d97e73a7e6c042f11597a30ae50  FreeFire_1.132.1_MenuFix_v4_UNSIGNED.ipa
+          a097b5536eda4e8d99fc356663d932fb2bf141acfa5dbb9bfb186ecba6285ac1  MenuFix_v4_Verification.zip
+          CHECKSUMS
+          sha256sum --check SHA256SUMS.txt
+      - name: Upload assets and publish the prepared release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload menufix-v4 --repo "$GITHUB_REPOSITORY" release/FreeFire_1.132.1_MenuFix_v4_UNSIGNED.ipa release/MenuFix_v4_Verification.zip release/SHA256SUMS.txt
+          gh api "repos/$GITHUB_REPOSITORY/releases/433912219/assets" > /tmp/menufix-assets.json
+          python3 - <<'PY'
+          import json
+          assets = json.load(open('/tmp/menufix-assets.json'))
+          expected = {
+            'FreeFire_1.132.1_MenuFix_v4_UNSIGNED.ipa': (991743503, 'bd48ffc1b6a74856e1832f884b4b5678b6cf3d97e73a7e6c042f11597a30ae50'),
+            'MenuFix_v4_Verification.zip': (5324616, 'a097b5536eda4e8d99fc356663d932fb2bf141acfa5dbb9bfb186ecba6285ac1')
+          }
+          for name, (size, digest) in expected.items():
+            item = next(a for a in assets if a['name'] == name)
+            assert item['state'] == 'uploaded' and item['size'] == size
+            assert item['digest'] == 'sha256:' + digest
+          print('GitHub asset sizes and SHA-256 digests verified.')
+          PY
+          gh release edit menufix-v4 --repo "$GITHUB_REPOSITORY" --draft=false
