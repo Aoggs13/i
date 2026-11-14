@@ -1,0 +1,1 @@
+AJG shop menu update: language and purchase navigation edit the existing Telegram message. Existing IPA 50015, licensing keys, production variables and /data volume are preserved. Candidate ESP/game artifacts are not promoted by this deployment.
